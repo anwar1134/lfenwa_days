@@ -1,0 +1,13 @@
+{
+  "appId": "com.lfnawadays.app",
+  "appName": "Lfnawa Days",
+  "webDir": "www",
+  "backgroundColor": "#0E1416",
+  "android": {
+    "backgroundColor": "#0E1416",
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

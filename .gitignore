@@ -1,0 +1,14 @@
+node_modules/
+desktop/release/
+desktop/dist/
+mobile/www/
+mobile/android/
+mobile/ios/
+*.log
+.DS_Store
+
+# Next.js
+/.next/
+/out/
+*.tsbuildinfo
+next-env.d.ts

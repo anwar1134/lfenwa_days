@@ -1,0 +1,22 @@
+{
+  "name": "lfnawa-days-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lfnawa Days — Android app (Capacitor). Includes the embedded Lfenwa Trades trading journal.",
+  "scripts": {
+    "sync": "node sync-www.js && cap sync android",
+    "open:android": "node sync-www.js && cap sync android && cap open android",
+    "build:debug": "cd android && ./gradlew assembleDebug",
+    "build:release": "cd android && ./gradlew assembleRelease"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.5.1",
+    "@capacitor/app": "^8.0.0",
+    "@capacitor/filesystem": "^8.0.0",
+    "@capacitor/share": "^8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.1",
+    "@capacitor/android": "^8.0.0"
+  }
+}

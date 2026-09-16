@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Lfenwa Trades</title>
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icons/icon-192.png" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<meta name="theme-color" content="#0E1416" />
+<style>html,body,#root{height:100%;margin:0;background:#0b0d10;}</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+  // Ask the browser/WebView not to silently evict this origin's storage
+  // under disk pressure. Harmless where unsupported (older WebViews) —
+  // guarded, best-effort, never blocks app start.
+  if (window.navigator && navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().catch(function () {});
+  }
+</script>
+<script src="bundle.js"></script>
+<!-- No-op everywhere except inside the Capacitor Android shell (guarded
+     internally on window.Capacitor). Gives Android a real "save/share
+     file" path for Export Backup / Export CSV, which a plain WebView
+     cannot do with a bare <a download>. Desktop, Electron and the
+     plain browser/PWA never load window.Capacitor, so this file exits
+     immediately for them. -->
+<script src="capacitor-bridge.js"></script>
+</body>
+</html>

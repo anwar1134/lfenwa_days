@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Lfnawa Days</title>
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icons/icon-192.png" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<meta name="theme-color" content="#0E1416" />
+<style>html,body,#root{height:100%;margin:0;background:#0E1416;}</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+  // Ask the browser/WebView not to silently evict this origin's storage
+  // under disk pressure. Harmless where unsupported, best-effort, never
+  // blocks app start. Same guarded pattern as app/www/trades/index.html.
+  if (window.navigator && navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().catch(function () {});
+  }
+</script>
+<script src="life-bundle.js"></script>
+<!-- No-op everywhere except inside the Capacitor Android shell. Gives
+     Android a real "save/share file" path for Export Backup, which a
+     bare WebView <a download> cannot do on its own. -->
+<script src="capacitor-bridge.js"></script>
+</body>
+</html>
