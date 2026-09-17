@@ -5,6 +5,7 @@
   "private": true,
   "description": "Lfnawa Days — Linux & Windows desktop app (includes Lfenwa Trades, formerly the standalone Fenwa Trades / ES Order Flow Journal)",
   "author": "Lfnawa Days <TODO_REPLACE_WITH_YOUR_EMAIL@example.com>",
+  "homepage": "https://github.com/anwar1134/lfenwa_days.git",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -27,7 +28,7 @@
     "files": ["main.js", "preload.js", "server.js", "menu.js", "package.json"],
     "extraResources": [
       {
-        "from": "../app",
+        "from": "../out",
         "to": "app",
         "filter": ["**/*", "!src${/*}", "!serve.js", "!run-linux.sh", "!run-windows.bat", "!node_modules${/*}", "!build.js", "!package.json", "!package-lock.json"]
       }
