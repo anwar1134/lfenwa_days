@@ -20,7 +20,7 @@ import {
 import type { IconType } from "react-icons";
 import { C, SANS } from "./ui";
 import { todayStr } from "@/lib/storage";
-import type { TabKey } from "@/types/life";
+import type { TabKey, ModuleKey } from "@/types/life";
 import Today from "./Today";
 import MyDay from "./MyDay";
 import Calendar from "./Calendar";
@@ -41,6 +41,9 @@ interface NavItem {
   icon: IconType;
 }
 
+// Lfnawa Days' OWN navigation — intentionally does not include "trades".
+// Lfenwa Trades is a separate module (see ModuleKey in types/life.ts),
+// switched via QuickSwitch below, not one of Days' own tabs.
 const NAV_ITEMS: NavItem[] = [
   { key: "today", label: "Today", icon: FiHome },
   { key: "myday", label: "My Day", icon: FiBookOpen },
@@ -51,7 +54,6 @@ const NAV_ITEMS: NavItem[] = [
   { key: "money", label: "Money", icon: FiDollarSign },
   { key: "habits", label: "Health & Habits", icon: FiActivity },
   { key: "mind", label: "Mind", icon: FiCloud },
-  { key: "trades", label: "Lfenwa Trades", icon: FiTrendingUp },
   { key: "insights", label: "Insights", icon: FiBarChart2 },
   { key: "settings", label: "Settings", icon: FiSettings },
 ];
@@ -75,7 +77,7 @@ function Brand() {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "16px 14px 10px" }}>
       <div style={{ width: 26, height: 26, borderRadius: 7, background: C.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: "#191307" }}>L</div>
-      <span style={{ fontSize: 13, fontWeight: 700, color: C.ink, letterSpacing: 0.3 }}>LFNAWA DAYS</span>
+      <span style={{ fontSize: 13, fontWeight: 700, color: C.ink, letterSpacing: 0.3 }}>LFENWA DAYS</span>
     </div>
   );
 }
@@ -156,6 +158,63 @@ function TopBar({ title, onMenu, onSearch }: { title: string; onMenu: () => void
   );
 }
 
+// The LFNawa-level module switcher. Lives above both modules — it is not
+// part of Lfnawa Days' own nav (NavRail) and not part of Lfenwa Trades'
+// own nav (its internal, untouched sidebar inside the iframe). Rendered
+// as a small fixed pill so it's reachable from anywhere in either module
+// without disturbing either module's own navigation/layout.
+function QuickSwitch({ module, onSwitch }: { module: ModuleKey; onSwitch: (m: ModuleKey) => void }) {
+  const items: { key: ModuleKey; label: string; icon: IconType }[] = [
+    { key: "days", label: "Days", icon: FiHome },
+    { key: "trades", label: "Trades", icon: FiTrendingUp },
+  ];
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: 10,
+        right: 12,
+        zIndex: 200,
+        display: "flex",
+        background: C.bgAlt,
+        border: `1px solid ${C.line}`,
+        borderRadius: 20,
+        padding: 3,
+        boxShadow: "0 4px 14px rgba(0,0,0,.35)",
+        ...SANS,
+      }}
+    >
+      {items.map((it) => {
+        const active = module === it.key;
+        return (
+          <button
+            key={it.key}
+            onClick={() => onSwitch(it.key)}
+            aria-label={`Switch to Lfenwa ${it.label}`}
+            title={`Switch to Lfenwa ${it.label}`}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "6px 10px",
+              borderRadius: 17,
+              border: "none",
+              background: active ? C.accent : "transparent",
+              color: active ? "#191307" : C.inkDim,
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            <it.icon size={13} />
+            {it.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // window.Capacitor is provided at runtime by the Capacitor native
 // shell only; typed loosely and guarded, exactly like the original
 // AppShell.jsx and capacitor-bridge.js.
@@ -176,12 +235,31 @@ declare global {
 }
 
 export default function AppShell({ initialTab = "today" }: { initialTab?: TabKey }) {
-  const [tab, setTabRaw] = useState<TabKey>(initialTab);
+  // "trades" was the old, flat way of asking for Lfenwa Trades (still
+  // accepted here for the /journal route, see app/journal/page.tsx). It
+  // now resolves to an initial MODULE, not a Days tab — Days' own tab
+  // state always starts on a real Days tab regardless.
+  const initialModule: ModuleKey = initialTab === "trades" ? "trades" : "days";
+  const initialDaysTab: TabKey = initialTab === "trades" ? "today" : initialTab;
+
+  const [module, setModuleRaw] = useState<ModuleKey>(initialModule);
+  const [tab, setTabRaw] = useState<TabKey>(initialDaysTab);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [quickAdd, setQuickAdd] = useState(false);
   const [search, setSearch] = useState(false);
-  const tabHistory = useRef<TabKey[]>([initialTab]);
+  const tabHistory = useRef<TabKey[]>([initialDaysTab]);
+  // Module-level back-button history, independent of Days' own tab
+  // history — lets the Android hardware back button leave the Trades
+  // module and land back in Days before Days' own tab stack unwinds.
+  const moduleHistory = useRef<ModuleKey[]>([initialModule]);
+
+  const setModule = useCallback((next: ModuleKey) => {
+    setModuleRaw((cur) => {
+      if (cur !== next) moduleHistory.current.push(next);
+      return next;
+    });
+  }, []);
 
   const setTab = useCallback((next: TabKey) => {
     setTabRaw((cur) => {
@@ -190,9 +268,26 @@ export default function AppShell({ initialTab = "today" }: { initialTab?: TabKey
     });
   }, []);
 
+  // Unified navigation entry point passed to Days screens (Today,
+  // Settings, QuickAdd, Search) as `onNavigate`. Their calls are
+  // unchanged (e.g. onNavigate("trades")) — what changed is that
+  // "trades" now switches the MODULE instead of being pushed into Days'
+  // own tab list, since it isn't a Days tab anymore.
+  const navigate = useCallback(
+    (target: TabKey) => {
+      if (target === "trades") {
+        setModule("trades");
+        return;
+      }
+      setModule("days");
+      setTab(target);
+    },
+    [setModule, setTab]
+  );
+
   function openDay(date: string) {
     setSelectedDate(date);
-    setTab("myday");
+    navigate("myday");
   }
 
   // Android hardware back button. No-op everywhere except inside the
@@ -210,6 +305,16 @@ export default function AppShell({ initialTab = "today" }: { initialTab?: TabKey
     const sub = AppPlugin.addListener("backButton", () => {
       if (search) { setSearch(false); return; }
       if (quickAdd) { setQuickAdd(false); return; }
+      // Module-level back first: leaving the Trades module returns to
+      // Days rather than falling through to Days' own tab history (which
+      // Trades, having no Days tab, was never part of).
+      if (module === "trades") {
+        moduleHistory.current.pop();
+        const prevModule = moduleHistory.current[moduleHistory.current.length - 1];
+        setModuleRaw(prevModule || "days");
+        if (!prevModule) moduleHistory.current = ["days"];
+        return;
+      }
       tabHistory.current.pop();
       const prev = tabHistory.current[tabHistory.current.length - 1];
       if (prev && prev !== tab) { setTabRaw(prev); return; }
@@ -219,18 +324,45 @@ export default function AppShell({ initialTab = "today" }: { initialTab?: TabKey
       lastBackPress = now;
     });
     return () => sub?.remove?.();
-  }, [tab, quickAdd, search]);
+  }, [module, tab, quickAdd, search]);
 
   const activeItem = NAV_ITEMS.find((i) => i.key === tab);
 
+  // Module === "trades": Lfenwa Trades is rendered as its own, fully
+  // independent application — no Days NavRail, no Days TopBar, no Days
+  // FAB mounted at all (not hidden via CSS/overflow tricks). Its own
+  // internal navigation, inside the iframe, is completely untouched. The
+  // only Lfnawa-level chrome layered on top is the QuickSwitch pill, so
+  // there is always a way back to Days.
+  if (module === "trades") {
+    return (
+      <div style={{ height: "100vh", width: "100%", background: C.bg, ...SANS }}>
+        <style>{GLOBAL_CSS}</style>
+        {/* Absolute path (not "./trades/index.html"): this shell can be
+            entered from several real Next.js routes (/, /today, /journal,
+            ...), so a relative src would resolve against the CURRENT
+            route and break from anywhere but "/". See
+            docs/NEXTJS_MIGRATION.md. */}
+        <iframe
+          title="Lfenwa Trades"
+          src="/trades/index.html"
+          style={{ width: "100%", height: "100%", border: "none", display: "block" }}
+        />
+        <QuickSwitch module={module} onSwitch={setModule} />
+      </div>
+    );
+  }
+
+  // Module === "days": Lfnawa Days' own shell — its own NavRail, its own
+  // TopBar, its own FAB — exactly as before, minus the old "trades" tab.
   return (
     <div style={{ height: "100vh", width: "100%", display: "flex", background: C.bg, color: C.ink, ...SANS }}>
       <style>{GLOBAL_CSS}</style>
-      <NavRail tab={tab} setTab={setTab} mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
+      <NavRail tab={tab} setTab={navigate} mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, height: "100%" }}>
         <TopBar title={activeItem?.label || ""} onMenu={() => setMobileOpen(true)} onSearch={() => setSearch(true)} />
-        <div style={{ flex: 1, overflowY: tab === "trades" ? "hidden" : "auto", padding: tab === "trades" ? 0 : "16px 16px 80px" }}>
-          {tab === "today" && <Today onNavigate={setTab} onQuickAdd={() => setQuickAdd(true)} />}
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 80px" }}>
+          {tab === "today" && <Today onNavigate={navigate} onQuickAdd={() => setQuickAdd(true)} />}
           {tab === "myday" && <MyDay date={selectedDate} setDate={setSelectedDate} />}
           {tab === "calendar" && <Calendar onOpenDay={openDay} />}
           {tab === "memories" && <Memories />}
@@ -240,22 +372,11 @@ export default function AppShell({ initialTab = "today" }: { initialTab?: TabKey
           {tab === "habits" && <HealthHabits />}
           {tab === "mind" && <Mind />}
           {tab === "insights" && <Insights />}
-          {tab === "settings" && <Settings onNavigate={setTab} />}
-          {tab === "trades" && (
-            // Absolute path (not "./trades/index.html"): this shell can now be
-            // entered from several real Next.js routes (/, /today, /trades, ...),
-            // so a relative src would resolve against the CURRENT route and
-            // break from anywhere but "/". See docs/NEXTJS_MIGRATION.md.
-            <iframe
-              title="Lfenwa Trades"
-              src="/trades/index.html"
-              style={{ width: "100%", height: "100%", border: "none", display: "block" }}
-            />
-          )}
+          {tab === "settings" && <Settings onNavigate={navigate} />}
         </div>
       </div>
 
-      {tab !== "today" && tab !== "trades" && (
+      {tab !== "today" && (
         <button
           onClick={() => setQuickAdd(true)}
           aria-label="Add"
@@ -280,8 +401,10 @@ export default function AppShell({ initialTab = "today" }: { initialTab?: TabKey
         </button>
       )}
 
-      {quickAdd && <QuickAdd onClose={() => setQuickAdd(false)} onNavigate={setTab} />}
-      {search && <SearchOverlay onClose={() => setSearch(false)} onOpenDay={openDay} onNavigate={setTab} />}
+      {quickAdd && <QuickAdd onClose={() => setQuickAdd(false)} onNavigate={navigate} />}
+      {search && <SearchOverlay onClose={() => setSearch(false)} onOpenDay={openDay} onNavigate={navigate} />}
+
+      <QuickSwitch module={module} onSwitch={setModule} />
     </div>
   );
 }

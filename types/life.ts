@@ -220,6 +220,14 @@ export interface PlaybookEntryLike {
 
 /* ---------- navigation ---------- */
 
+// "trades" is kept as a valid TabKey value (rather than removed) purely so
+// existing call sites (Today, Settings, QuickAdd, Search) can keep calling
+// onNavigate("trades") unchanged — a request to "go to Lfenwa Trades" is
+// still a meaningful navigation target from inside Lfnawa Days. What
+// changed is what that request MEANS: AppShell no longer treats "trades"
+// as one of Lfnawa Days' own tabs (it's not in the Days NAV_ITEMS list,
+// and there's no Days screen for it) — instead it's translated into a
+// module switch. See ModuleKey below and AppShell.tsx.
 export type TabKey =
   | "today"
   | "myday"
@@ -233,6 +241,16 @@ export type TabKey =
   | "trades"
   | "insights"
   | "settings";
+
+// A "module" is the top-level LFNawa concept requested by the project
+// owner: Lfnawa Days and Lfenwa Trades are two independent applications
+// living side by side (each with its OWN navigation), switched via
+// "Quick Switch" — not two tabs inside one flat list. "trades" here means
+// the whole embedded Lfenwa Trades application (its own internal nav,
+// rendered inside its iframe, untouched); "days" means Lfnawa Days' own
+// shell (NavRail + the TabKey tabs above). A TabKey is only ever
+// meaningful while module === "days".
+export type ModuleKey = "days" | "trades";
 
 /* ---------- backup / restore ---------- */
 

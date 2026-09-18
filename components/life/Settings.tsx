@@ -70,7 +70,7 @@ export default function Settings({ onNavigate }: { onNavigate: (tab: TabKey) => 
 
       <Panel title="Backup & restore">
         <div style={{ fontSize: 12, color: C.inkDim, marginBottom: 10 }}>
-          One backup file covers your whole Lfnawa Days journal — days, timeline, tasks, achievements, learning, money, habits, goals, memories, mind entries — plus your Lfenwa Trades trades, no-trade days, playbook and settings (read-only copy, folded in for convenience).
+          One backup file covers your whole Lfenwa Days journal — days, timeline, tasks, achievements, learning, money, habits, goals, memories, mind entries — plus your Lfenwa Trades trades, no-trade days, playbook and settings (read-only copy, folded in for convenience).
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button onClick={doExport} style={{ ...primaryBtn, display: "flex", alignItems: "center", gap: 6 }}>
@@ -93,7 +93,7 @@ export default function Settings({ onNavigate }: { onNavigate: (tab: TabKey) => 
 
       <Panel title="About">
         <div style={{ fontSize: 12, color: C.inkDim, lineHeight: 1.7 }}>
-          Lfnawa Days — offline-first, local, private. Your data stays on this device unless you export it yourself. No account required, no analytics, no cloud sync.
+          Lfenwa Days — offline-first, local, private. Your data stays on this device unless you export it yourself. No account required, no analytics, no cloud sync.
         </div>
       </Panel>
 
@@ -102,7 +102,7 @@ export default function Settings({ onNavigate }: { onNavigate: (tab: TabKey) => 
           <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, padding: 18, maxWidth: 380 }}>
             <div style={{ fontWeight: 700, color: C.ink, marginBottom: 10 }}>Import backup</div>
             <div style={{ fontSize: 13, color: C.inkDim, marginBottom: 14 }}>
-              <b>Merge</b> adds/updates entries by id without deleting anything already on this device (safe, recommended). <b>Replace</b> clears your current Lfnawa Days data first — this cannot be undone.
+              <b>Merge</b> adds/updates entries by id without deleting anything already on this device (safe, recommended). <b>Replace</b> clears your current Lfenwa Days data first — this cannot be undone.
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button onClick={() => confirmImport("merge")} style={primaryBtn}>
