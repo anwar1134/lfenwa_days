@@ -3,9 +3,9 @@ import React from "react";
 import { C, Panel } from "../ui";
 
 /**
- * Keeps a render-time failure inside the System from taking down the screen
- * that hosts it. Today wraps its System section in this, so if the System ever
- * breaks, Today still shows all of its existing life data.
+ * Keeps a render-time failure inside the System from taking down the screen that hosts it.
+ * Today wraps its System card in this, so if the System ever breaks, Today still shows
+ * everything it showed before.
  */
 export default class SystemBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
   state = { failed: false };

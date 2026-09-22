@@ -4,22 +4,22 @@ import React from "react";
 // Same palette family as the trading journal (public/trades' own `C`)
 // so Lfenwa Trades doesn't feel like a different app bolted on.
 export const C = {
-  bg: "#0E1416",
-  bgAlt: "#0B1012",
-  panel: "#141C20",
-  panelRaised: "#1B252A",
-  line: "#263237",
-  lineSoft: "#1D282D",
-  ink: "#E7ECEC",
-  inkDim: "#8FA0A6",
-  inkFaint: "#5B6B70",
-  accent: "#D9A548",
-  accentDim: "#8A6A32",
-  good: "#7DA98B",
-  goodDim: "#3C4C42",
-  bad: "#C06A5C",
-  badDim: "#4C332F",
-  info: "#6C93B0",
+  bg: "#F4F7FB",
+  bgAlt: "#EAF0F8",
+  panel: "#FFFFFF",
+  panelRaised: "#E3ECF8",
+  line: "#D3DEEC",
+  lineSoft: "#E4ECF6",
+  ink: "#10203A",
+  inkDim: "#44556F",
+  inkFaint: "#5A6B85",
+  accent: "#2563C9",
+  accentDim: "#DCE8FB",
+  good: "#1F7A4D",
+  goodDim: "#DDF0E4",
+  bad: "#B4382B",
+  badDim: "#FBE1DD",
+  info: "#2F6FA6",
 } as const;
 export const SANS = { fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" };
 export const MONO = { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" };
@@ -250,7 +250,7 @@ export function RatingScale({
 
 export const primaryBtn: React.CSSProperties = {
   background: C.accent,
-  color: "#191307",
+  color: "#FFFFFF",
   border: "none",
   borderRadius: 8,
   padding: "9px 14px",

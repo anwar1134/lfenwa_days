@@ -1,35 +1,109 @@
 /* ============================================================
-   LFENWA SYSTEM — shared TypeScript types
+   LFENWA SYSTEM — shared types
    ============================================================
-   The System is a progression layer INSIDE Lfnawa Days:
+   The System is the progression layer underneath Lfnawa Days:
 
-     Action -> Quest -> Completion -> XP + Stats -> Level
+     life activity → LifeEvent (a FACT) → reward rules (a DECISION)
+       → XP ledger → profile projection → level (always derived)
 
-   These types describe what is persisted in lfnawaDaysDB (stores
-   "system", "quests", "systemEvents" — see lib/storage.ts) and what
-   the pure engine in lib/system/engine.ts operates on.
-
-   This file is types only: no runtime code, no imports, so it can be
-   imported from anywhere (including types/life.ts) without cycles.
+   This file is types only: no runtime code and no imports, so any
+   layer (including types/life.ts) can import it without cycles.
    ============================================================ */
 
 /* ---------- stats ---------- */
 
-export type StatKey = "strength" | "intelligence" | "focus" | "discipline" | "health" | "finance";
+/** Stats are registry-driven data (lib/system/config/stats.ts), not a closed union. */
+export type StatId = string;
+export type StatBlock = Record<StatId, number>;
+export type StatGains = Record<StatId, number>;
 
-/** A full set of the six core stats. */
-export type StatBlock = Record<StatKey, number>;
+/* ---------- events (facts) ---------- */
 
-/** A partial stat gain, e.g. { intelligence: 2, discipline: 1 }. */
-export type StatRewards = Partial<Record<StatKey, number>>;
+export type EventScalar = string | number | boolean;
+
+export interface LifeEvent {
+  /**
+   * Deterministic. It doubles as the idempotency key, so the same real-world
+   * fact always has the same id no matter which trigger (live / reconcile) or
+   * which tab produced it. e.g. `habit.completed:<habitId>:<date>`.
+   */
+  eventId: string;
+  /** Which domain integration produced it: "habits" | "tasks" | "trading" | … */
+  source: string;
+  /** What happened: "habit.completed" | "task.completed" | "trading.reviewed" | … */
+  type: string;
+  /** The day (YYYY-MM-DD, the app's todayStr() convention) the fact belongs to. */
+  date: string;
+  /** When the System first recorded the fact (epoch ms). */
+  timestamp: number;
+  /** Only when the DOMAIN really knows when it happened (tasks do; habits and Trades don't). */
+  occurredAt?: number;
+  title: string;
+  /** Evidence pointer into the owning domain — never a copy of its record. */
+  ref?: { domain: string; store: string; id: string };
+  /** Small, flat, factual. Never contains money amounts or P&L. */
+  metadata: Record<string, EventScalar>;
+}
+
+/* ---------- reward rules (decisions) ---------- */
+
+export interface RewardRule {
+  id: string;
+  /** Human sentence shown in "What earns XP". */
+  label: string;
+  eventType: string;
+  /** Every key must equal the event's metadata / derived attribute (e.g. { category: "study" }). */
+  match?: Record<string, EventScalar>;
+  /** Key into XP_TIERS (lib/system/config/xp.ts). Rules never carry raw XP numbers. */
+  tier: string;
+  stats: StatGains;
+  /** Max ledger entries this rule may create per event date. 0 disables the rule. */
+  dailyCap: number;
+}
+
+export interface RewardDecision {
+  ruleId: string;
+  xp: number;
+  stats: StatGains;
+}
+
+/** Context the pure reward engine needs (all of it is System-owned settings). */
+export interface RewardContext {
+  habitLinks: Record<string, HabitCategory>;
+}
+
+/* ---------- XP ledger (append-only) ---------- */
+
+export interface XpLedgerEntry {
+  /** `${ruleId}::${eventId}` — makes double-awarding structurally impossible. */
+  id: string;
+  ruleId: string;
+  eventId: string;
+  /** The event's date (not the grant time). Indexed as by_date. */
+  date: string;
+  /** When it was granted (epoch ms). */
+  at: number;
+  xp: number;
+  stats: StatGains;
+  cause: { source: string; type: string; title: string };
+  ref?: LifeEvent["ref"];
+}
 
 /* ---------- profile (one row: id "profile") ---------- */
 
+/** A habit is linked to a System category by the USER, explicitly. Never inferred from its name. */
+export type HabitCategory = "study" | "workout" | "general";
+
 export interface SystemSettings {
-  // Reserved for a possible future opt-in "Enable Quest Penalties".
-  // Nothing reads or writes this yet — the default (and only) behaviour
-  // is: no negative XP, ever.
-  questPenalties?: boolean;
+  habitLinks: Record<string, HabitCategory>;
+}
+
+/** A cache of the ledger. The ledger is the truth; this can always be rebuilt. */
+export interface ProfileProjection {
+  totalXp: number;
+  stats: StatBlock;
+  /** Number of ledger rows this projection was computed from — used to detect a stale cache. */
+  ledgerCount: number;
 }
 
 export interface SystemProfile {
@@ -37,146 +111,51 @@ export interface SystemProfile {
   schemaVersion: number;
   createdAt: number;
   updatedAt: number;
-  /** Lifetime XP. Level is always DERIVED from this, never stored. */
-  totalXp: number;
-  stats: StatBlock;
-  settings?: SystemSettings;
+  projection: ProfileProjection;
+  settings: SystemSettings;
 }
 
-/* ---------- quests (store "quests") ---------- */
-
-/**
- * What kind of quest this is. Phase 2 only ever creates "daily"; the other
- * values exist so weekly / one-time / boss quests can be added later without
- * reshaping stored data or this type.
- */
-export type QuestType = "daily" | "weekly" | "one-time" | "boss";
-
-/**
- * "pending" and "completed" are the only states Phase 2 uses. "failed" is
- * reserved for a possible future opt-in penalty mode and is never set today:
- * an unfinished quest simply stays pending.
- */
-export type QuestStatus = "pending" | "completed" | "failed";
-
-export interface SystemQuest {
-  /**
-   * Deterministic for generated quests (`daily:<date>:<definitionId>`), which is
-   * what makes generation idempotent. Also the basis of the reward's
-   * idempotency key (`quest:<id>`).
-   */
-  id: string;
-  type: QuestType;
-  /**
-   * YYYY-MM-DD. Daily: the day the quest belongs to. (Future: weekly = the
-   * week's start; one-time / boss = created-on.) Indexed as by_date.
-   */
-  date: string;
-  title: string;
-  description?: string;
-  category?: string;
-  status: QuestStatus;
-  /** Copied from the definition at generation time, so later balance changes never rewrite history. */
-  xpReward: number;
-  statRewards: StatRewards;
-  completedAt?: number | null;
-  /** Which config definition produced this quest (absent for hand-made quests). */
-  definitionId?: string;
-}
-
-/** A predefined quest template (lib/system/config.ts). */
-export interface QuestDefinition {
-  /** Stable id, e.g. "study-30". Never reuse or rename once shipped. */
-  id: string;
-  type: QuestType;
-  title: string;
-  description: string;
-  category: string;
-  xp: number;
-  stats: StatRewards;
-  /** Core definitions are always part of a day's set; the rest rotate in. */
-  core?: boolean;
-}
-
-export interface QuestSummary {
-  total: number;
-  completed: number;
-  /** XP still on the table from pending quests. */
-  xpAvailable: number;
-  /** XP already earned from completed quests. */
-  xpEarned: number;
-}
-
-export type CompleteQuestStatus = "completed" | "already-completed" | "not-found";
-
-export interface CompleteQuestResult {
-  status: CompleteQuestStatus;
-  /** The quest after the call (null if not found). */
-  quest: SystemQuest | null;
-  /** The reward outcome. null unless this call completed the quest. */
-  award: AwardResult | null;
-}
-
-/* ---------- event log (store "systemEvents") ---------- */
-
-// Phase 2 only ever writes "quest". The rest name future sources so the log
-// never needs reshaping when they arrive.
-export type SystemEventSource = "quest" | "habit" | "task" | "learning" | "money" | "goal" | "trading-day" | "streak" | "achievement" | "manual" | "system";
-
-export interface SystemEvent {
-  /**
-   * Doubles as the idempotency key: an award with an id that already
-   * exists is never applied twice (e.g. `habit:<habitId>:<date>`).
-   */
-  id: string;
-  /** YYYY-MM-DD the award belongs to (indexed as by_date). */
-  date: string;
-  /** Epoch ms when it was applied. */
-  at: number;
-  source: SystemEventSource;
-  sourceId?: string;
-  label: string;
-  xp: number;
-  stats: StatRewards;
-}
-
-/* ---------- engine inputs / outputs ---------- */
-
-export interface XpAward {
-  /** Idempotency key (see SystemEvent.id). */
-  eventId: string;
-  date: string;
-  source: SystemEventSource;
-  sourceId?: string;
-  label: string;
-  xp: number;
-  stats?: StatRewards;
-}
+/* ---------- derived views ---------- */
 
 export interface LevelProgress {
   level: number;
   totalXp: number;
-  /** Total XP at which the current level began. */
   levelStartXp: number;
-  /** Total XP at which the next level is reached. */
   nextLevelXp: number;
-  /** XP earned inside the current level. */
   xpIntoLevel: number;
-  /** Size of the current level (nextLevelXp - levelStartXp). */
   xpSpan: number;
-  /** XP still needed for the next level. */
   xpToNext: number;
-  /** 0..1 progress through the current level. */
   fraction: number;
 }
 
-export interface AwardResult {
-  /** True only if this call actually changed the profile. */
-  applied: boolean;
-  /** True if the eventId had already been applied (no change made). */
-  duplicate: boolean;
-  profile: SystemProfile;
-  levelBefore: number;
-  levelAfter: number;
-  leveledUp: boolean;
+export interface SystemSnapshot {
+  totalXp: number;
+  stats: StatBlock;
+  progress: LevelProgress;
+  todayXp: number;
+  /** Newest first. */
+  recent: XpLedgerEntry[];
+  habitLinks: Record<string, HabitCategory>;
+}
+
+export interface ProcessResult {
+  /** Events newly stored as facts. */
+  recorded: number;
+  /** Ledger entries created by this call (empty when everything was already processed). */
+  rewarded: XpLedgerEntry[];
+}
+
+/* ---------- Trading boundary ---------- */
+
+/**
+ * The ONLY shape the System ever receives from Trading. Booleans and counts —
+ * by construction there is no profit / loss / price / size field anywhere here.
+ */
+export interface TradingDaySummary {
+  date: string;
+  prepared: boolean;
+  checkedIn: boolean;
+  reviewed: boolean;
+  noTradeCount: number;
+  tradeCount: number;
 }

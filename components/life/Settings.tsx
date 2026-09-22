@@ -7,6 +7,7 @@ import type { TabKey } from "@/types/life";
 
 export default function Settings({ onNavigate }: { onNavigate: (tab: TabKey) => void }) {
   const [currency, setCurrency] = useState("DH");
+  const [displayName, setDisplayName] = useState("");
   const [status, setStatus] = useState("");
   const [pendingImport, setPendingImport] = useState<{ payload: unknown } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -14,6 +15,7 @@ export default function Settings({ onNavigate }: { onNavigate: (tab: TabKey) => 
   useEffect(() => {
     dbGet("settings", "app").then((s) => {
       if (s?.defaultCurrency) setCurrency(s.defaultCurrency);
+      if (s?.displayName) setDisplayName(s.displayName);
     });
   }, []);
 
@@ -21,6 +23,12 @@ export default function Settings({ onNavigate }: { onNavigate: (tab: TabKey) => 
     setCurrency(v);
     const existing = (await dbGet("settings", "app")) || { id: "app" as const };
     await dbPut("settings", { ...existing, id: "app", defaultCurrency: v });
+  }
+
+  async function saveName(v: string) {
+    setDisplayName(v);
+    const existing = (await dbGet("settings", "app")) || { id: "app" as const };
+    await dbPut("settings", { ...existing, id: "app", displayName: v });
   }
 
   async function doExport() {
@@ -63,6 +71,9 @@ export default function Settings({ onNavigate }: { onNavigate: (tab: TabKey) => 
       <div style={{ fontSize: 20, fontWeight: 700, color: C.ink, marginBottom: 14 }}>Settings</div>
 
       <Panel title="Preferences">
+        <Field label="Your name" hint="Shown in the greeting on Today.">
+          <TextInput value={displayName} onChange={saveName} placeholder="Your name" />
+        </Field>
         <Field label="Default currency">
           <TextInput value={currency} onChange={saveCurrency} placeholder="DH" />
         </Field>
@@ -98,7 +109,7 @@ export default function Settings({ onNavigate }: { onNavigate: (tab: TabKey) => 
       </Panel>
 
       {pendingImport && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(16,32,58,0.45)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
           <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, padding: 18, maxWidth: 380 }}>
             <div style={{ fontWeight: 700, color: C.ink, marginBottom: 10 }}>Import backup</div>
             <div style={{ fontSize: 13, color: C.inkDim, marginBottom: 14 }}>

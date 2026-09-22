@@ -1,148 +1,173 @@
-# Lfenwa System
+# Lfenwa System — Core (Phase 1)
 
-A progression layer **inside** Lfnawa Days:
+The System is the progression layer **underneath Lfnawa Days**. It is not a separate
+app and not a game bolted on: XP and stats come only from real activity the app can
+observe.
 
-    Action → Quest → Completion → XP + Stats → Level → Achievements → Notifications
+```
+life activity → LifeEvent (a FACT) → reward rules (a DECISION) → XP ledger
+             → profile projection → level (always derived)
+```
 
-It adds to the app; it replaces nothing. Existing screens, data, and the
-embedded Lfenwa Trades module are untouched.
+## Rules the code follows
 
-## Status by phase
-
-| Phase | Scope | State |
-|---|---|---|
-| 1 | Types, persistence, XP + level maths, six stats, System status screen | **done** |
-| 2 | Daily quests, quest completion, System activity, Today section | **done** |
-| 3 | Weekly quests, boss quests, streaks, achievements | planned |
-| 4 | Notifications, Habits/Learning/Money/Goals integrations, polish | planned |
+1. One life, one shell. Trading is a domain of Lfnawa Days; its data stays isolated.
+2. A domain owns its data. The System owns progression.
+3. Domains produce facts (`LifeEvent`). **Only the reward rules decide XP/stat gains.**
+4. Event ids are deterministic, so processing the same fact twice can never pay twice.
+5. XP has **one gate**: `processEvents()` in `lib/system/store/service.ts`.
+6. **Level is derived** from lifetime XP and is never stored.
+7. The engine is pure (no React, no storage). UI talks to the store layer only.
 
 ## Where things live
 
 | Path | Role |
-|---|---|
-| `types/system.ts` | Types only (profile, quest, event, award, level progress) |
-| `lib/system/config.ts` | **All tunable numbers**: XP tiers, level thresholds, stat list |
-| `lib/system/engine.ts` | Pure functions: level maths, profile create/normalise, apply award |
-| `lib/system/store.ts` | **The System's service boundary** — the only module UI calls: profile, `awardXp`, `ensureDailyQuests`, `completeQuest`, event queries |
-| `components/life/system/` | UI: `SystemStatus`, `XpProgress`, `StatsGrid`, `DailyQuestsPanel` (+ `useDailyQuests`), `TodaySystemSection`, `SystemBoundary`, `theme` |
-| `tests/system/` | Test suites + `run.sh` (see "Verification") |
-| `app/system/page.tsx` | Route (same pattern as the other tabs) |
+| --- | --- |
+| `types/system.ts` | Types only |
+| `lib/system/config/` | Data: XP tiers, level table, stat registry, reward rules, eligibility window |
+| `lib/system/engine/` | **Pure** logic: levels, dates/eligibility, ids, event validation, reward evaluation + caps, ledger projection, profile repair, formatting |
+| `lib/system/store/` | Persistence + the service (`processEvents`, `getSnapshot`, `setHabitLink`, `rebuildProjection`) and change notifications |
+| `lib/system/integrations/` | Domain → facts: `habits`, `tasks`, `trading`, plus the runner (live + reconcile triggers) |
+| `components/life/system/` | UI only (System screen, Today card, habit links, "what earns XP") |
+| `lib/storage.ts` | Adds `subscribeToWrites` / `subscribeToBulkChange` / `withoutWriteNotifications`, `dbTransaction`, `dbGetByDateRange`, and the three stores |
 
-## Storage (lfnawaDaysDB, version 2)
+## Events (facts)
 
-Three stores were added in **one** additive bump (v1 → v2), so later phases
-need no further schema change:
+```ts
+interface LifeEvent {
+  eventId: string;            // deterministic — also the idempotency key
+  source: string;             // "habits" | "tasks" | "trading"
+  type: string;               // "habit.completed" | "task.completed" | "trading.reviewed" …
+  date: string;               // the day it belongs to (todayStr() convention)
+  timestamp: number;          // when the System recorded it
+  occurredAt?: number;        // only when the DOMAIN knows (tasks do; habits and Trades don't)
+  title: string;
+  ref?: { domain: string; store: string; id: string };   // a pointer, never a copy
+  metadata: Record<string, string | number | boolean>;   // small, flat, never money
+}
+```
 
-| Store | Key | Holds |
-|---|---|---|
-| `system` | `id` | one row, `id: "profile"`: `totalXp`, `stats`, timestamps |
-| `quests` | `id` (+ `by_date`) | quests (Phase 2+) |
-| `systemEvents` | `id` (+ `by_date`) | append-only XP log |
+| Fact | Id |
+| --- | --- |
+| habit completed | `habit.completed:<habitId>:<date>` |
+| task completed | `task.completed:<taskId>` |
+| trading prepared / check-in / no-trade / review | `trading.<kind>:<date>` |
+| ledger row | `<ruleId>::<eventId>` |
 
-The existing `onupgradeneeded` handler only creates stores that are missing,
-so every v1 store and row is left exactly as it was (verified against a
-database created by the previous build — see "Verification").
+Unchecking a habit never removes XP. Rechecking it maps to the same id, so it never pays twice.
 
-**Known trade-off — no downgrades.** IndexedDB refuses to open a database at a
-lower version than it already has. A build that still says `DB_VERSION = 1`
-will fail on a profile that has been upgraded: it throws
-`The requested version (1) is less than the existing version (2)` and sits on
-"Loading…". No data is lost, and opening the profile with a v2+ build again
-restores everything. This bites when switching between a System branch and an
-older branch on the **same origin** (e.g. `localhost:3000`).
+## Rewards
 
-**Upgrade can be blocked** if a tab running the old build is still open on the
-same origin; close/reload it.
+Rules are configuration (`lib/system/config/rules.ts`): event type → XP **tier** (never a raw
+number) → stat gains → daily cap. Domains cannot award XP and UI code contains no XP numbers.
 
-`esOrderFlowJournal` (Lfenwa Trades) is never opened for writing and is never
-created by any System code.
+| Rule | Tier | Stats | Cap/day |
+| --- | --- | --- | --- |
+| task completed | small task (10) | Discipline +1 | 5 |
+| habit linked to **Study** | simple habit (15) | Intelligence +1, Discipline +1 | 3 |
+| habit linked to **Workout** | simple habit (15) | Strength +1, Health +1 | 2 |
+| habit linked to **General** | simple habit (15) | Discipline +1 | 5 |
+| trading preparation | medium task (25) | Discipline +1 | 1 |
+| no-trade decision, no trades (completed day) | medium task (25) | Discipline +2 | 1 |
+| trading review | medium task (25) | Intelligence +1, Discipline +1 | 1 |
 
-## Data rules
+* **Habits earn XP only when the user links them** (System screen → Habit links). A habit is
+  never classified by its name. Linking a habit you already ticked today counts (it is inside
+  the window). Unlinking removes nothing.
+* **Eligibility:** only events dated **today or yesterday** can earn XP. Older events (and
+  future-dated ones) are still recorded as facts but stay unrewarded — so existing history,
+  edited old records and restored backups cannot mint XP.
+* Rewards can never be negative, by construction (`sanitizeGains`, `toNonNegativeInt`).
+* **Study / workout duration is never claimed.** Learning has no duration field and workouts
+  have no records; evidence today is an explicitly linked habit.
 
-- **Level is derived** from `totalXp`; it is never stored.
-- **No negative XP or stat loss**, enforced in the engine (not just the UI).
-- **`awardXp` is atomic and idempotent.** The event and the profile update are
-  one IndexedDB transaction; `eventId` is the idempotency key. Use
-  deterministic ids for anything that can be repeated, e.g.
-  `habit:<habitId>:<date>` or `quest:<questId>`, so toggling or double-tapping
-  can never award twice.
-- **The profile is created lazily**, only if none exists (race-safe), with all
-  stats at 1. Nothing is initialised over existing data.
-- Day boundaries use `todayStr()` (a UTC date) like the rest of the app, so
-  quests line up with tasks and habits.
+## Ledger and projection
 
-## Daily quests (Phase 2)
+`xpLedger` is append-only (one row per `(rule, event)`). `systemProfile` holds a **cache** of
+the fold of the ledger (total XP, stats, `ledgerCount`) plus the user's System settings
+(habit links). If the cache disagrees with the ledger — after a merge, a restore, or any
+corruption — it is rebuilt from the ledger on the next read, and the XP gate heals it before
+building on it. Stats start at 1 and only increase.
 
-**Model** (`SystemQuest`): `id, type, date, title, description, category,
-status, xpReward, statRewards, completedAt, definitionId`. `type` is
-`daily | weekly | one-time | boss`; Phase 2 only creates `daily`. Status is
-`pending | completed` (`failed` is reserved and never set). Rewards are
-*copied* onto the quest when it is generated, so rebalancing `config.ts` never
-rewrites history.
+## Integrations: two triggers, one idempotent result
 
-**Definitions** live in `lib/system/config.ts` (`DAILY_QUEST_DEFINITIONS`);
-XP reuses `XP_TIERS` where a reward matches a tier. A day's set = every `core`
-definition + a rotating window of the others, up to `DAILY_QUEST_COUNT` (4),
-clamped to 3–5. The rotation depends only on the date — same date, same set;
-no randomness and nothing adaptive yet.
+* **Live:** after a successful `dbPut`/`dbDelete` commits, listeners are notified. A listener
+  that throws or rejects can never affect the write. Screens are unchanged and unaware.
+* **Reconcile** (startup, window focus, visibility, returning from Trades): each integration
+  derives facts for today + yesterday. It covers missed writes, other tabs, existing recent
+  records, and Trades (which cannot push).
+* Both produce the same deterministic ids; the ledger key makes a second award impossible.
+* Imports/restores suppress per-record notifications (decided when each write **starts**) and
+  announce **one** bulk change, after which the projection is rebuilt.
 
-**Generation** (`ensureDailyQuests`) is idempotent: ids are deterministic
-(`daily:<date>:<definitionId>`); the insert runs in one transaction that
-re-checks "does this day already have daily quests?" and uses `store.add`
-(never `put`), so Today + System + double effects + two tabs cannot duplicate,
-and a completed quest can never be reset. A day is generated once; later
-changes to the definitions only affect future days.
+## Trading boundary (protected)
 
-**Completion** (`completeQuest`) is the *only* way a quest completes. One
-transaction covers the quest row, the profile and the XP log: check not
-already completed → grant XP + stats through the **same** internal function
-`awardXp` uses (`applyAwardInTransaction`) with event id `quest:<questId>` →
-mark completed. Second click, second tab, reload: no additional reward. There
-is no undo, and XP is never removed.
+```
+esOrderFlowJournal → readTradesKV (existing, untouched, read-only)
+                   → lib/system/integrations/trading.ts → TradingDaySummary → facts
+```
 
-**UI.** `DailyQuestsPanel` (one component, one hook) is used by both the
-System screen ("Today's Quests") and Today (compact). Today wraps its section
-in `SystemBoundary` and it loads its own data, so a System failure cannot
-affect Today's existing content.
+* `TradingDaySummary` = `{ date, prepared, checkedIn, reviewed, noTradeCount, tradeCount }`.
+  Booleans and counts only: **no profit/loss field exists**, so profit cannot be rewarded.
+* The System never writes to Trades, never names its database, never modifies the bridge.
+* Reads are wrapped in a timeout: the bridge parses JSON inside an IndexedDB handler, so a
+  malformed value would leave its promise pending forever; the adapter treats that as "no data".
+* **Provisional definitions** (verified read-only against real Trades records in Phase 2):
+  prepared = Daily Prep fields filled; review = Daily Review has content (the self-*scores* never
+  matter); no-trade = a no-trade logged **and** no trades that day, emitted only for **completed
+  days** (a morning no-trade must not be contradicted by an afternoon trade). Every trading fact
+  carries `metadata.definition = "provisional"`.
 
-## Levels
+## Database (`lfnawaDaysDB` v1 → v2)
 
-Table (total XP to reach): 0, 100, 250, 450, 700, 1000, 1350, 1750, 2200, 2700
-for levels 1–10. Beyond the table each level costs 50 more than the previous
-one (L10→11 = 550, L11→12 = 600 …), which is the rule the table already
-follows, so the curve never caps. The UI shows `total XP / XP for next level`;
-the bar shows progress through the *current* level.
+Additive only; no record is migrated, renamed or deleted.
 
-## Backup / restore
+| Store | Key | Indexes |
+| --- | --- | --- |
+| `systemProfile` | `id` | — |
+| `lifeEvents` | `eventId` | `by_date`, `by_type` |
+| `xpLedger` | `id` | `by_date`, `by_event` |
 
-The System stores are covered by `exportFullBackup()` automatically (it walks
-`STORES`), including the desktop auto-backup hook. Old backups still import:
-absent keys are simply skipped. In **replace** mode a System store is cleared
-only if the backup actually carries it, so restoring a pre-System backup can
-not wipe System progress. In **merge** mode the single profile row is only
-replaced by a profile with *more* XP, so merging an older backup can never
-roll progress back (a quest row may revert to pending, but re-completing it
-cannot double-award: the XP log still holds `quest:<id>`). The backup `schema`
-stays `1`.
+**Which version a database ends up at** (all additive; nothing is ever deleted or rewritten):
 
-## Verification (Phase 1 + Phase 2)
+| Database found | Result |
+| --- | --- |
+| none (fresh install) | created at v2 with all 16 stores |
+| v1 (your original) | v2, the 3 new stores added |
+| **v2 left by the abandoned prototype** (its own `system` / `quests` / `systemEvents` stores, none of the Phase 1 stores) | one additive bump to **v3** that adds the 3 Phase 1 stores. The prototype stores stay in the database, **dormant and unread** (they are not exported in backups, and a Replace restore never clears them) |
+| higher than the code's constant (e.g. v3 on the next start) | opened as it is (no `VersionError`) |
 
-Run everything with `bash tests/system/run.sh` (add `--e2e` for the browser
-suite after `npm run build`). The runner installs `tsx` and `fake-indexeddb`
-into a temp directory — the project's `package.json` is not touched, and
-`tests/` is excluded from the project's `tsc`.
+IndexedDB only runs an upgrade when the version *increases*, so `openDB` checks for missing stores after
+opening and performs that single additive bump itself. It also closes its connection when another tab needs
+to upgrade (`onversionchange`) and reopens on the next operation; a tab still running an *older* build that
+holds the database open makes the upgrade wait until it is closed or reloaded.
 
-- `npm run typecheck`, `npm run build`, `npm run lint`: clean.
-- Pure logic: level table/boundaries/hostile input; quest definitions,
-  selection, determinism over 800 dates, completion transitions.
-- Storage (in-memory IndexedDB): v1→v2 upgrade with real-shaped data, concurrent
-  generation and completion, rollback, persistence read through an independent
-  connection, backup import/export (replace + merge). Safeguards were
-  mutation-tested (each deliberately broken → the right tests fail).
-- Real headless Chromium: database created by the previous build upgraded by
-  this one with every row verified identical; quests, completion, two-tab race,
-  double-click, reload; Today with System storage forced to fail; all existing
-  screens; Quick Switch to Trades and back; 390 px / 320 px layouts.
-- **Not verified:** a real Android device, the Electron shell, and the
-  service-worker update path (the service worker was blocked in the browser
-  test; `public/sw.js` is unchanged).
+**No downgrades.** IndexedDB refuses to open a database at a lower version. A build that still says
+`DB_VERSION = 1` (your original) cannot open an upgraded profile (the data is safe; a newer build opens it).
+Try the new build on a different origin (port) first if you want to avoid upgrading your real profile.
+Backups: the new stores are exported automatically (schema stays 1); *Replace* with a backup that lacks System
+stores does not clear them; *Merge* heals the projection from the ledger.
+
+## Theme
+
+Light, calm, blue, via the existing `C` token object in `components/life/ui.tsx` (plus a handful
+of literals, `globals.css`, `manifest.json`, `layout.tsx`). Every text/background pair used was
+checked against WCAG AA (4.5:1). Lfenwa Trades is unchanged and stays dark inside its iframe.
+
+## Verification
+
+`bash tests/system/run.sh` (unit + storage + architecture suites; installs `tsx` + `fake-indexeddb`
+into a temp dir, never into the project) and `bash tests/system/run.sh --e2e` (real headless
+Chromium, after `npm run build`).
+
+* `architecture.test.ts` enforces the structural claims by reading the source: one XP gate
+  (a ledger row is created in exactly one place), an append-only ledger, a pure engine, a
+  read-only Trading adapter with no P&L path, a UI that goes through the store layer, and
+  **Trades files and the `readTradesKV` bridge byte-identical to the approved baseline commit
+  `cc2df0a`** (so any future change to protected Trades code fails loudly).
+* `bash tests/system/inspect-project.sh [repo] [--run]` is a **read-only** inspection of a checkout
+  (git state, which Phase 1/prototype code exists, the `lfnawaDaysDB` implementation, Trades
+  fingerprints, the System surface; `--run` also runs typecheck/build/lint/tests). It writes nothing.
+
+Not verified: real Android/Electron, the service-worker update path, browsers other than Chromium,
+and the Trading definitions against real Trades records (Phase 2).

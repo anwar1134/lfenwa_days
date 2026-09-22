@@ -115,7 +115,7 @@ function DaySummaryPopup({ date, onClose, onOpenDay }: { date: string; onClose: 
   }, [date]);
   const m = (data?.day as DayRecord | undefined)?.metrics || {};
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(16,32,58,0.45)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, padding: 18, width: "100%", maxWidth: 380 }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
           <div style={{ fontWeight: 700, color: C.ink }}>{fmtDateLong(date)}</div>

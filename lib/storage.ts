@@ -15,9 +15,7 @@
        database.
      - This file's database ("lfnawaDaysDB") stores everything
        else: days, timeline, tasks, achievements, learning, money,
-       habits, goals, memories, mind entries, and settings — plus,
-       since DB version 2, the Lfenwa System's profile, quests and
-       XP event log (see docs/SYSTEM.md).
+       habits, goals, memories, mind entries, and settings.
 
    Two separate databases means a bug or migration in one can
    never corrupt or delete data in the other.
@@ -39,13 +37,11 @@ import type {
 } from "@/types/life";
 
 const DB_NAME = "lfnawaDaysDB";
-// v1 -> v2 (Lfenwa System): PURELY ADDITIVE. The upgrade handler below only
-// creates stores that don't exist yet, so every v1 store and every row in it
-// is left exactly as it was. All three System stores are added in this ONE
-// bump so later System phases never need another schema change.
-// Note: an app build that still says DB_VERSION = 1 cannot open a v2 database
-// (IndexedDB refuses downgrades) — data is safe, but that older build won't
-// start on a profile that has already been upgraded.
+// v1 -> v2 (Lfenwa System, Phase 1): PURELY ADDITIVE. The upgrade handler below only
+// creates stores that don't exist yet, so every v1 store and row is left exactly as it
+// was. No data is migrated or rewritten. Note: IndexedDB refuses downgrades — an app
+// build that still says DB_VERSION = 1 cannot open a database already upgraded to 2
+// (the data is safe; a v2+ build opens it again).
 const DB_VERSION = 2;
 
 const STORES: Record<StoreName, string> = {
@@ -61,40 +57,80 @@ const STORES: Record<StoreName, string> = {
   memories: "id", // {id, date, type, text, attachmentId, createdAt}
   attachments: "id", // {id, mime, dataUrl, filename}
   mindEntries: "id", // {id, date, time, mood, energy, stress, focus, thought}
-  settings: "id", // single row {id:"app", ...}
-  system: "id", // single row {id:"profile", totalXp, stats:{...}} — Lfenwa System profile
-  quests: "id", // {id, kind, date, title, status, xpReward, statRewards, completedAt} — System quests
-  systemEvents: "id", // {id (idempotency key), date, at, source, label, xp, stats} — System XP log
+  settings: "id", // single row {id:"app", displayName?, defaultCurrency?}
+  systemProfile: "id", // single row {id:"profile", projection, settings} — Lfenwa System (a cache of the ledger)
+  lifeEvents: "eventId", // {eventId, source, type, date, timestamp, title, ref, metadata} — facts
+  xpLedger: "id", // {id (`${ruleId}::${eventId}`), ruleId, eventId, date, at, xp, stats, cause} — append-only
 };
 
-const DATE_INDEXED: StoreName[] = ["timeline", "achievements", "tasks", "learning", "money", "memories", "mindEntries", "quests", "systemEvents"];
+const DATE_INDEXED: StoreName[] = ["timeline", "achievements", "tasks", "learning", "money", "memories", "mindEntries", "lifeEvents", "xpLedger"];
+
+// Extra secondary indexes (name -> keyPath), created only when a store is first created.
+const EXTRA_INDEXES: Partial<Record<StoreName, [name: string, keyPath: string][]>> = {
+  habitEntries: [["by_habit", "habitId"]],
+  lifeEvents: [["by_type", "type"]],
+  xpLedger: [["by_event", "eventId"]],
+};
 
 // Stores owned by the Lfenwa System. importLifeBackup() treats these specially so
 // restoring an OLD backup (which predates them) can never wipe System progress.
-const SYSTEM_STORES: StoreName[] = ["system", "quests", "systemEvents"];
+const SYSTEM_STORES: StoreName[] = ["systemProfile", "lifeEvents", "xpLedger"];
 
 let _dbPromise: Promise<IDBDatabase> | null = null;
-function openDB(): Promise<IDBDatabase> {
-  if (_dbPromise) return _dbPromise;
-  _dbPromise = new Promise((resolve, reject) => {
-    if (typeof indexedDB === "undefined") {
-      reject(new Error("IndexedDB unavailable"));
-      return;
+
+/** Create every store that doesn't exist yet (and its indexes). Never touches an existing store. */
+function createMissingStores(db: IDBDatabase): void {
+  (Object.entries(STORES) as [StoreName, string][]).forEach(([name, keyPath]) => {
+    if (!db.objectStoreNames.contains(name)) {
+      const store = db.createObjectStore(name, { keyPath });
+      if (DATE_INDEXED.includes(name)) store.createIndex("by_date", "date", { unique: false });
+      for (const [idx, path] of EXTRA_INDEXES[name] || []) store.createIndex(idx, path, { unique: false });
     }
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      (Object.entries(STORES) as [StoreName, string][]).forEach(([name, keyPath]) => {
-        if (!db.objectStoreNames.contains(name)) {
-          const store = db.createObjectStore(name, { keyPath });
-          if (DATE_INDEXED.includes(name)) store.createIndex("by_date", "date", { unique: false });
-          if (name === "habitEntries") store.createIndex("by_habit", "habitId", { unique: false });
-        }
-      });
-    };
+  });
+}
+
+/** Open lfnawaDaysDB. With no `version` it opens the database at whatever version it already has (never creates one). */
+function openAt(version?: number): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = version === undefined ? indexedDB.open(DB_NAME) : indexedDB.open(DB_NAME, version);
+    req.onupgradeneeded = () => createMissingStores(req.result);
+    req.onblocked = () => console.warn("[storage] database upgrade is waiting for another open tab/window of Lfnawa Days to close or reload");
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+}
+
+async function openDatabase(): Promise<IDBDatabase> {
+  let db: IDBDatabase;
+  try {
+    db = await openAt(DB_VERSION);
+  } catch (err) {
+    // The database is already at a HIGHER version than this build's constant (e.g. it was
+    // additively upgraded below). That is fine: open it as it is instead of failing.
+    if ((err as DOMException | undefined)?.name !== "VersionError") throw err;
+    db = await openAt();
+  }
+  // A database can already be AT our version yet lack stores this build needs — IndexedDB only
+  // runs the upgrade handler when the version increases, so e.g. a database that another build
+  // left at version 2 would never get the Phase 1 stores. Add whatever is missing with ONE
+  // additive version bump. Nothing existing is renamed, transformed or deleted.
+  if ((Object.keys(STORES) as StoreName[]).some((n) => !db.objectStoreNames.contains(n))) {
+    const next = db.version + 1;
+    db.close();
+    db = await openAt(next);
+  }
+  // Cooperate with other tabs: if another tab needs to upgrade, get out of its way and reopen
+  // on the next operation instead of blocking it forever.
+  db.onversionchange = () => {
+    db.close();
+    _dbPromise = null;
+  };
+  return db;
+}
+
+function openDB(): Promise<IDBDatabase> {
+  if (_dbPromise) return _dbPromise;
+  _dbPromise = typeof indexedDB === "undefined" ? Promise.reject(new Error("IndexedDB unavailable")) : openDatabase();
   return _dbPromise;
 }
 
@@ -102,8 +138,99 @@ function tx(storeName: StoreName, mode: IDBTransactionMode): Promise<IDBObjectSt
   return openDB().then((db) => db.transaction(storeName, mode).objectStore(storeName));
 }
 
+/* ---------- write subscription ----------
+   Lets other layers (the Lfenwa System's integrations) react to writes made through
+   dbPut / dbDelete WITHOUT the screens knowing about them. Listeners are called after
+   the write's transaction COMMITS, a listener that throws (or rejects) can never affect
+   the write, and bulk operations (backup import) suppress per-record notifications and
+   announce ONE bulk-change instead. */
+export interface WriteEvent {
+  store: StoreName;
+  op: "put" | "delete";
+  key: IDBValidKey;
+  /** The record that was written (undefined for deletes). */
+  value?: unknown;
+}
+type WriteListener = (e: WriteEvent) => void | Promise<void>;
+const writeListeners = new Set<WriteListener>();
+const bulkListeners = new Set<() => void | Promise<void>>();
+let suppressDepth = 0;
+
+export function subscribeToWrites(listener: WriteListener): () => void {
+  writeListeners.add(listener);
+  return () => writeListeners.delete(listener);
+}
+export function subscribeToBulkChange(listener: () => void | Promise<void>): () => void {
+  bulkListeners.add(listener);
+  return () => bulkListeners.delete(listener);
+}
+
+function safeCall(fn: () => void | Promise<void>): void {
+  try {
+    const r = fn();
+    if (r && typeof (r as Promise<void>).catch === "function") (r as Promise<void>).catch((err) => console.error("[storage] listener failed:", err));
+  } catch (err) {
+    console.error("[storage] listener failed:", err);
+  }
+}
+function notifyWrite(e: WriteEvent): void {
+  for (const l of [...writeListeners]) safeCall(() => l(e));
+}
+function notifyBulkChange(): void {
+  for (const l of [...bulkListeners]) safeCall(l);
+}
+
+/** Run `fn` with per-record write notifications suppressed (used for imports/restores). */
+export async function withoutWriteNotifications<T>(fn: () => Promise<T>): Promise<T> {
+  suppressDepth++;
+  try {
+    return await fn();
+  } finally {
+    suppressDepth--;
+  }
+}
+
+/* ---------- multi-store transactions ----------
+   The single-store helpers open a fresh transaction per call, which is right for almost
+   everything. The System needs the opposite in one place: "record the event AND grant the
+   reward AND update the projection" must succeed or fail TOGETHER (and check for a
+   duplicate in the same breath), so it uses ONE transaction spanning several stores. Only
+   await IDB requests (via idbReq) inside `work` — awaiting anything else lets it close. */
+export function idbReq<T>(req: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function dbTransaction<T>(storeNames: StoreName[], mode: IDBTransactionMode, work: (t: IDBTransaction) => Promise<T>): Promise<T> {
+  const db = await openDB();
+  return new Promise<T>((resolve, reject) => {
+    const t = db.transaction(storeNames, mode);
+    const workDone = (async () => work(t))();
+    workDone.catch((err) => {
+      try {
+        t.abort(); // roll back anything `work` already wrote
+      } catch {
+        /* transaction already finished */
+      }
+      reject(err);
+    });
+    t.oncomplete = () => {
+      workDone.then(resolve, reject);
+    };
+    t.onabort = () => reject(t.error || new Error("IndexedDB transaction aborted"));
+  });
+}
+
 export async function dbPut<K extends StoreName>(storeName: K, value: StoreValueMap[K]): Promise<StoreValueMap[K]> {
   const store = await tx(storeName, "readwrite");
+  // Decide NOW (when the write starts) whether this write is suppressed: the commit event
+  // can fire after a bulk operation has already finished.
+  if (suppressDepth === 0) {
+    const key = (value as unknown as Record<string, IDBValidKey>)[STORES[storeName]];
+    store.transaction.addEventListener("complete", () => notifyWrite({ store: storeName, op: "put", key, value }), { once: true });
+  }
   return new Promise((resolve, reject) => {
     const req = store.put(value);
     req.onsuccess = () => resolve(value);
@@ -122,6 +249,7 @@ export async function dbGet<K extends StoreName>(storeName: K, key: IDBValidKey)
 
 export async function dbDelete(storeName: StoreName, key: IDBValidKey): Promise<boolean> {
   const store = await tx(storeName, "readwrite");
+  if (suppressDepth === 0) store.transaction.addEventListener("complete", () => notifyWrite({ store: storeName, op: "delete", key }), { once: true });
   return new Promise((resolve, reject) => {
     const req = store.delete(key);
     req.onsuccess = () => resolve(true);
@@ -148,6 +276,16 @@ export async function dbGetByDate<K extends StoreName>(storeName: K, date: strin
   });
 }
 
+/** Records whose `date` is within [from, to] (inclusive), via the by_date index. */
+export async function dbGetByDateRange<K extends StoreName>(storeName: K, from: string, to: string): Promise<StoreValueMap[K][]> {
+  const store = await tx(storeName, "readonly");
+  return new Promise((resolve, reject) => {
+    const req = store.index("by_date").getAll(IDBKeyRange.bound(from, to));
+    req.onsuccess = () => resolve((req.result as StoreValueMap[K][]) || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
 export async function dbGetByHabit(habitId: string): Promise<HabitEntry[]> {
   const store = await tx("habitEntries", "readonly");
   return new Promise((resolve, reject) => {
@@ -155,40 +293,6 @@ export async function dbGetByHabit(habitId: string): Promise<HabitEntry[]> {
     const req = idx.getAll(habitId);
     req.onsuccess = () => resolve((req.result as HabitEntry[]) || []);
     req.onerror = () => reject(req.error);
-  });
-}
-
-/* ---------- multi-store transactions ----------
-   The single-store helpers above open a fresh transaction per call, which is
-   right for almost everything. The Lfenwa System needs the opposite in one
-   place: "record the XP event AND update the profile" must succeed or fail
-   TOGETHER (and check for a duplicate event in the same breath), so it uses
-   one transaction spanning several stores. Only await IDB requests (via
-   idbReq) inside `work` — awaiting anything else lets the transaction close. */
-export function idbReq<T>(req: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-export async function dbTransaction<T>(storeNames: StoreName[], mode: IDBTransactionMode, work: (t: IDBTransaction) => Promise<T>): Promise<T> {
-  const db = await openDB();
-  return new Promise<T>((resolve, reject) => {
-    const t = db.transaction(storeNames, mode);
-    const workDone = (async () => work(t))();
-    workDone.catch((err) => {
-      try {
-        t.abort(); // roll back anything `work` already wrote
-      } catch {
-        /* transaction already finished */
-      }
-      reject(err);
-    });
-    t.oncomplete = () => {
-      workDone.then(resolve, reject);
-    };
-    t.onabort = () => reject(t.error || new Error("IndexedDB transaction aborted"));
   });
 }
 
@@ -359,31 +463,26 @@ export async function importLifeBackup(payload: unknown, mode: "merge" | "replac
   const life = (payload as { life: Record<string, unknown> }).life;
   const names = Object.keys(STORES) as StoreName[];
   const counts: Partial<Record<StoreName, number>> = {};
-  if (mode === "replace") {
-    // A backup made before the Lfenwa System existed has no System stores.
-    // "Replace" must not silently erase System progress just because the
-    // backup predates it, so only clear a System store if the backup
-    // actually carries it. Every pre-existing store behaves exactly as before.
-    await dbClearAll(names.filter((n) => !SYSTEM_STORES.includes(n) || Array.isArray(life[n])));
-  }
-  for (const name of names) {
-    const incoming = Array.isArray(life[name]) ? (life[name] as StoreValueMap[typeof name][]) : [];
-    for (const item of incoming) {
-      // Merge must never LOWER System progress. The profile is a single row of running
-      // totals, so upserting an older backup's row would roll XP/stats back below what
-      // the XP log still records. Keep whichever profile has more XP (a malformed
-      // incoming profile never wins). Replace mode cleared the store above, so it is
-      // unaffected.
-      if (name === "system" && mode === "merge") {
-        const current = await dbGet("system", "profile");
-        const incomingXp = Number((item as StoreValueMap["system"]).totalXp);
-        if (current && !(incomingXp >= current.totalXp)) continue;
-      }
-      // upsert by primary key — never wipes what's already on this device
-      await dbPut(name, item);
+  // A restore writes thousands of records: no per-record notifications (a restore must
+  // never look like new activity), and ONE bulk-change announcement at the end.
+  await withoutWriteNotifications(async () => {
+    if (mode === "replace") {
+      // A backup made before the System existed has no System stores. "Replace" must not
+      // silently erase System progress just because the backup predates it, so a System
+      // store is only cleared if the backup actually carries it. Every other store
+      // behaves exactly as before.
+      await dbClearAll(names.filter((n) => !SYSTEM_STORES.includes(n) || Array.isArray(life[n])));
     }
-    counts[name] = incoming.length;
-  }
+    for (const name of names) {
+      const incoming = Array.isArray(life[name]) ? (life[name] as StoreValueMap[typeof name][]) : [];
+      for (const item of incoming) {
+        // upsert by primary key — never wipes what's already on this device
+        await dbPut(name, item);
+      }
+      counts[name] = incoming.length;
+    }
+  });
+  notifyBulkChange();
   return { ok: true, counts };
 }
 

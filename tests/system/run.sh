@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the Lfenwa System test suites (Phase 1 + Phase 2).
+# Runs the Lfenwa System test suites (Phase 1: Core System).
 #
 #   bash tests/system/run.sh            unit + storage suites (needs only Node 22 + npm + internet once)
 #   bash tests/system/run.sh --e2e      also the real-browser suite (needs a built `out/`, see e2e.mjs)
@@ -21,16 +21,19 @@ if [ ! -d node_modules/tsx ] || [ ! -d node_modules/fake-indexeddb ]; then
 fi
 cp "$HERE"/*.ts "$WORK"/
 
+export LFENWA_REPO="$REPO"   # some suites read the source of the project under test
 TSX=(npx tsx --tsconfig "$REPO/tsconfig.json")
 failed=0
 run() { echo; echo "── $*"; "${TSX[@]}" "$@" || failed=1; }
 
-# Phase 1
+# Pure logic (no storage)
+run levels.test.ts
 run engine.test.ts
-for s in upgrade fresh award backup; do run storage.test.ts "$s"; done
-# Phase 2
-run quests.engine.test.ts
-for s in generation completion persistence existing backup; do run quests.storage.test.ts "$s"; done
+run integrations.test.ts
+run architecture.test.ts
+# Storage, the XP gate, triggers, backup, and the Trading read boundary (in-memory IndexedDB;
+# one scenario per process because lib/storage.ts caches its DB handle at module level)
+for s in upgrade legacyv2 tabs fresh gate live projection backup trading; do run storage.test.ts "$s"; done
 
 if [ "${1:-}" = "--e2e" ]; then
   if [ ! -d node_modules/playwright-core ] || [ ! -d node_modules/@sparticuz ]; then

@@ -7,7 +7,7 @@
    purely to give the existing shapes real types.
    ============================================================ */
 
-import type { SystemProfile, SystemQuest, SystemEvent } from "./system";
+import type { LifeEvent, SystemProfile, XpLedgerEntry } from "./system";
 
 export interface DayMetrics {
   mood?: number | null;
@@ -154,6 +154,8 @@ export interface MindEntry {
 export interface AppSettings {
   id: "app";
   defaultCurrency?: string;
+  /** What the shell calls you ("Good morning, <name>"). Optional; nothing depends on it. */
+  displayName?: string;
 }
 
 /* ---------- object store registry ---------- */
@@ -172,9 +174,9 @@ export type StoreName =
   | "attachments"
   | "mindEntries"
   | "settings"
-  | "system"
-  | "quests"
-  | "systemEvents";
+  | "systemProfile"
+  | "lifeEvents"
+  | "xpLedger";
 
 export interface StoreValueMap {
   days: DayRecord;
@@ -190,9 +192,9 @@ export interface StoreValueMap {
   attachments: Attachment;
   mindEntries: MindEntry;
   settings: AppSettings;
-  system: SystemProfile;
-  quests: SystemQuest;
-  systemEvents: SystemEvent;
+  systemProfile: SystemProfile;
+  lifeEvents: LifeEvent;
+  xpLedger: XpLedgerEntry;
 }
 
 /* ============================================================

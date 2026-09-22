@@ -20,7 +20,8 @@ import {
 } from "react-icons/fi";
 import type { IconType } from "react-icons";
 import { C, SANS } from "./ui";
-import { todayStr } from "@/lib/storage";
+import { dbGet, subscribeToWrites, todayStr } from "@/lib/storage";
+import { requestReconcile, startSystemIntegrations } from "@/lib/system/integrations";
 import type { TabKey, ModuleKey } from "@/types/life";
 import Today from "./Today";
 import MyDay from "./MyDay";
@@ -32,7 +33,7 @@ import Money from "./Money";
 import HealthHabits from "./HealthHabits";
 import Mind from "./Mind";
 import Insights from "./Insights";
-import SystemStatus from "./system/SystemStatus";
+import SystemScreen from "./system/SystemScreen";
 import Settings from "./Settings";
 import QuickAdd from "./QuickAdd";
 import SearchOverlay from "./Search";
@@ -43,9 +44,10 @@ interface NavItem {
   icon: IconType;
 }
 
-// Lfnawa Days' OWN navigation — intentionally does not include "trades".
-// Lfenwa Trades is a separate module (see ModuleKey in types/life.ts),
-// switched via QuickSwitch below, not one of Days' own tabs.
+// Lfnawa Days' navigation. "Trades" is listed here so it reads as part of one life system,
+// but it is NOT a Days screen: selecting it calls navigate("trades"), which switches the
+// MODULE (Lfenwa Trades runs isolated in its own iframe/database — see ModuleKey in
+// types/life.ts). QuickSwitch below still works exactly as before.
 const NAV_ITEMS: NavItem[] = [
   { key: "today", label: "Today", icon: FiHome },
   { key: "system", label: "System", icon: FiZap },
@@ -58,6 +60,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: "habits", label: "Health & Habits", icon: FiActivity },
   { key: "mind", label: "Mind", icon: FiCloud },
   { key: "insights", label: "Insights", icon: FiBarChart2 },
+  { key: "trades", label: "Trades", icon: FiTrendingUp },
   { key: "settings", label: "Settings", icon: FiSettings },
 ];
 
@@ -79,7 +82,7 @@ const GLOBAL_CSS = `
 function Brand() {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "16px 14px 10px" }}>
-      <div style={{ width: 26, height: 26, borderRadius: 7, background: C.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: "#191307" }}>L</div>
+      <div style={{ width: 26, height: 26, borderRadius: 7, background: C.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: "#FFFFFF" }}>L</div>
       <span style={{ fontSize: 13, fontWeight: 700, color: C.ink, letterSpacing: 0.3 }}>LFENWA DAYS</span>
     </div>
   );
@@ -121,7 +124,7 @@ function NavRail({ tab, setTab, mobileOpen, setMobileOpen }: { tab: TabKey; setT
         ))}
       </div>
       {mobileOpen && (
-        <div className="lfnawa-mobile-drawer" onClick={() => setMobileOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 150 }}>
+        <div className="lfnawa-mobile-drawer" onClick={() => setMobileOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(16,32,58,0.35)", zIndex: 150 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: 230, height: "100%", background: C.bgAlt, borderRight: `1px solid ${C.line}`, overflowY: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <Brand />
@@ -183,7 +186,7 @@ function QuickSwitch({ module, onSwitch }: { module: ModuleKey; onSwitch: (m: Mo
         border: `1px solid ${C.line}`,
         borderRadius: 20,
         padding: 3,
-        boxShadow: "0 4px 14px rgba(0,0,0,.35)",
+        boxShadow: "0 4px 14px rgba(16,32,58,.18)",
         ...SANS,
       }}
     >
@@ -203,7 +206,7 @@ function QuickSwitch({ module, onSwitch }: { module: ModuleKey; onSwitch: (m: Mo
               borderRadius: 17,
               border: "none",
               background: active ? C.accent : "transparent",
-              color: active ? "#191307" : C.inkDim,
+              color: active ? "#FFFFFF" : C.inkDim,
               fontSize: 12,
               fontWeight: 700,
               cursor: "pointer",
@@ -293,6 +296,28 @@ export default function AppShell({ initialTab = "today" }: { initialTab?: TabKey
     navigate("myday");
   }
 
+  // Lfenwa System: start its triggers once (live writes, focus, restore). Idempotent.
+  useEffect(() => startSystemIntegrations(), []);
+
+  // Coming back to Days (initial load, or returning from Trades) is a natural moment to look at
+  // recent activity: Trades can't push events, so this is how its process facts are noticed.
+  useEffect(() => {
+    if (module === "days") void requestReconcile(true);
+  }, [module]);
+
+  // Greeting: "Good morning, <name>" — the name is a user setting, never hard-coded.
+  const [displayName, setDisplayName] = useState("");
+  const [hour, setHour] = useState<number | null>(null);
+  useEffect(() => {
+    const load = () => dbGet("settings", "app").then((s) => setDisplayName((s?.displayName || "").trim())).catch(() => {});
+    load();
+    return subscribeToWrites((e) => {
+      if (e.store === "settings") load();
+    });
+  }, []);
+  useEffect(() => setHour(new Date().getHours()), [tab, module]);
+  const greeting = hour === null ? "" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+
   // Android hardware back button. No-op everywhere except inside the
   // Capacitor Android shell — guarded, same pattern as
   // public/trades/capacitor-bridge.js. Unchanged from the original
@@ -363,10 +388,10 @@ export default function AppShell({ initialTab = "today" }: { initialTab?: TabKey
       <style>{GLOBAL_CSS}</style>
       <NavRail tab={tab} setTab={navigate} mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, height: "100%" }}>
-        <TopBar title={activeItem?.label || ""} onMenu={() => setMobileOpen(true)} onSearch={() => setSearch(true)} />
+        <TopBar title={tab === "today" && displayName && greeting ? `${greeting}, ${displayName}` : activeItem?.label || ""} onMenu={() => setMobileOpen(true)} onSearch={() => setSearch(true)} />
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 80px" }}>
           {tab === "today" && <Today onNavigate={navigate} onQuickAdd={() => setQuickAdd(true)} />}
-          {tab === "system" && <SystemStatus />}
+          {tab === "system" && <SystemScreen />}
           {tab === "myday" && <MyDay date={selectedDate} setDate={setSelectedDate} />}
           {tab === "calendar" && <Calendar onOpenDay={openDay} />}
           {tab === "memories" && <Memories />}
@@ -392,12 +417,12 @@ export default function AppShell({ initialTab = "today" }: { initialTab?: TabKey
             height: 52,
             borderRadius: 26,
             background: C.accent,
-            color: "#191307",
+            color: "#FFFFFF",
             border: "none",
             fontSize: 26,
             fontWeight: 700,
             cursor: "pointer",
-            boxShadow: "0 6px 18px rgba(0,0,0,.4)",
+            boxShadow: "0 6px 18px rgba(37,99,201,.35)",
             zIndex: 120,
           }}
         >

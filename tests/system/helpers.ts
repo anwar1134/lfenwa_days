@@ -44,7 +44,7 @@ export function createRunner(label: string) {
 /* ---- the ORIGINAL (pre-System) v1 database layout, transcribed from the untouched lib/storage.ts ---- */
 export const V1_STORES: Record<string, string> = { days: "date", timeline: "id", achievements: "id", tasks: "id", learning: "id", money: "id", habits: "id", habitEntries: "id", goals: "id", memories: "id", attachments: "id", mindEntries: "id", settings: "id" };
 export const V1_DATE = ["timeline", "achievements", "tasks", "learning", "money", "memories", "mindEntries"];
-export const NEW_STORES = ["system", "quests", "systemEvents"];
+export const NEW_STORES = ["systemProfile", "lifeEvents", "xpLedger"];
 
 export function rawOpen(name: string, version: number, upgrade?: (db: IDBDatabase) => void): Promise<IDBDatabase> {
   return new Promise((res, rej) => {
