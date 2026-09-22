@@ -70,7 +70,7 @@ export default function Settings({ onNavigate }: { onNavigate: (tab: TabKey) => 
 
       <Panel title="Backup & restore">
         <div style={{ fontSize: 12, color: C.inkDim, marginBottom: 10 }}>
-          One backup file covers your whole Lfenwa Days journal — days, timeline, tasks, achievements, learning, money, habits, goals, memories, mind entries — plus your Lfenwa Trades trades, no-trade days, playbook and settings (read-only copy, folded in for convenience).
+          One backup file covers your whole Lfenwa Days journal — days, timeline, tasks, achievements, learning, money, habits, goals, memories, mind entries, Lfenwa System progress — plus your Lfenwa Trades trades, no-trade days, playbook and settings (read-only copy, folded in for convenience).
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button onClick={doExport} style={{ ...primaryBtn, display: "flex", alignItems: "center", gap: 6 }}>

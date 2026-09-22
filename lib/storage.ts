@@ -15,7 +15,9 @@
        database.
      - This file's database ("lfnawaDaysDB") stores everything
        else: days, timeline, tasks, achievements, learning, money,
-       habits, goals, memories, mind entries, and settings.
+       habits, goals, memories, mind entries, and settings — plus,
+       since DB version 2, the Lfenwa System's profile, quests and
+       XP event log (see docs/SYSTEM.md).
 
    Two separate databases means a bug or migration in one can
    never corrupt or delete data in the other.
@@ -37,7 +39,14 @@ import type {
 } from "@/types/life";
 
 const DB_NAME = "lfnawaDaysDB";
-const DB_VERSION = 1;
+// v1 -> v2 (Lfenwa System): PURELY ADDITIVE. The upgrade handler below only
+// creates stores that don't exist yet, so every v1 store and every row in it
+// is left exactly as it was. All three System stores are added in this ONE
+// bump so later System phases never need another schema change.
+// Note: an app build that still says DB_VERSION = 1 cannot open a v2 database
+// (IndexedDB refuses downgrades) — data is safe, but that older build won't
+// start on a profile that has already been upgraded.
+const DB_VERSION = 2;
 
 const STORES: Record<StoreName, string> = {
   days: "date", // {date, wakeTime, sleepTime, location, note, metrics:{...}, review:{...}}
@@ -53,9 +62,16 @@ const STORES: Record<StoreName, string> = {
   attachments: "id", // {id, mime, dataUrl, filename}
   mindEntries: "id", // {id, date, time, mood, energy, stress, focus, thought}
   settings: "id", // single row {id:"app", ...}
+  system: "id", // single row {id:"profile", totalXp, stats:{...}} — Lfenwa System profile
+  quests: "id", // {id, kind, date, title, status, xpReward, statRewards, completedAt} — System quests
+  systemEvents: "id", // {id (idempotency key), date, at, source, label, xp, stats} — System XP log
 };
 
-const DATE_INDEXED: StoreName[] = ["timeline", "achievements", "tasks", "learning", "money", "memories", "mindEntries"];
+const DATE_INDEXED: StoreName[] = ["timeline", "achievements", "tasks", "learning", "money", "memories", "mindEntries", "quests", "systemEvents"];
+
+// Stores owned by the Lfenwa System. importLifeBackup() treats these specially so
+// restoring an OLD backup (which predates them) can never wipe System progress.
+const SYSTEM_STORES: StoreName[] = ["system", "quests", "systemEvents"];
 
 let _dbPromise: Promise<IDBDatabase> | null = null;
 function openDB(): Promise<IDBDatabase> {
@@ -142,9 +158,43 @@ export async function dbGetByHabit(habitId: string): Promise<HabitEntry[]> {
   });
 }
 
-export async function dbClearAll(): Promise<void> {
+/* ---------- multi-store transactions ----------
+   The single-store helpers above open a fresh transaction per call, which is
+   right for almost everything. The Lfenwa System needs the opposite in one
+   place: "record the XP event AND update the profile" must succeed or fail
+   TOGETHER (and check for a duplicate event in the same breath), so it uses
+   one transaction spanning several stores. Only await IDB requests (via
+   idbReq) inside `work` — awaiting anything else lets the transaction close. */
+export function idbReq<T>(req: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function dbTransaction<T>(storeNames: StoreName[], mode: IDBTransactionMode, work: (t: IDBTransaction) => Promise<T>): Promise<T> {
   const db = await openDB();
-  const names = Object.keys(STORES) as StoreName[];
+  return new Promise<T>((resolve, reject) => {
+    const t = db.transaction(storeNames, mode);
+    const workDone = (async () => work(t))();
+    workDone.catch((err) => {
+      try {
+        t.abort(); // roll back anything `work` already wrote
+      } catch {
+        /* transaction already finished */
+      }
+      reject(err);
+    });
+    t.oncomplete = () => {
+      workDone.then(resolve, reject);
+    };
+    t.onabort = () => reject(t.error || new Error("IndexedDB transaction aborted"));
+  });
+}
+
+export async function dbClearAll(only?: StoreName[]): Promise<void> {
+  const db = await openDB();
+  const names = only ?? (Object.keys(STORES) as StoreName[]);
   await Promise.all(
     names.map(
       (name) =>
@@ -309,10 +359,26 @@ export async function importLifeBackup(payload: unknown, mode: "merge" | "replac
   const life = (payload as { life: Record<string, unknown> }).life;
   const names = Object.keys(STORES) as StoreName[];
   const counts: Partial<Record<StoreName, number>> = {};
-  if (mode === "replace") await dbClearAll();
+  if (mode === "replace") {
+    // A backup made before the Lfenwa System existed has no System stores.
+    // "Replace" must not silently erase System progress just because the
+    // backup predates it, so only clear a System store if the backup
+    // actually carries it. Every pre-existing store behaves exactly as before.
+    await dbClearAll(names.filter((n) => !SYSTEM_STORES.includes(n) || Array.isArray(life[n])));
+  }
   for (const name of names) {
     const incoming = Array.isArray(life[name]) ? (life[name] as StoreValueMap[typeof name][]) : [];
     for (const item of incoming) {
+      // Merge must never LOWER System progress. The profile is a single row of running
+      // totals, so upserting an older backup's row would roll XP/stats back below what
+      // the XP log still records. Keep whichever profile has more XP (a malformed
+      // incoming profile never wins). Replace mode cleared the store above, so it is
+      // unaffected.
+      if (name === "system" && mode === "merge") {
+        const current = await dbGet("system", "profile");
+        const incomingXp = Number((item as StoreValueMap["system"]).totalXp);
+        if (current && !(incomingXp >= current.totalXp)) continue;
+      }
       // upsert by primary key — never wipes what's already on this device
       await dbPut(name, item);
     }

@@ -7,6 +7,8 @@
    purely to give the existing shapes real types.
    ============================================================ */
 
+import type { SystemProfile, SystemQuest, SystemEvent } from "./system";
+
 export interface DayMetrics {
   mood?: number | null;
   energy?: number | null;
@@ -169,7 +171,10 @@ export type StoreName =
   | "memories"
   | "attachments"
   | "mindEntries"
-  | "settings";
+  | "settings"
+  | "system"
+  | "quests"
+  | "systemEvents";
 
 export interface StoreValueMap {
   days: DayRecord;
@@ -185,6 +190,9 @@ export interface StoreValueMap {
   attachments: Attachment;
   mindEntries: MindEntry;
   settings: AppSettings;
+  system: SystemProfile;
+  quests: SystemQuest;
+  systemEvents: SystemEvent;
 }
 
 /* ============================================================
@@ -240,6 +248,7 @@ export type TabKey =
   | "mind"
   | "trades"
   | "insights"
+  | "system"
   | "settings";
 
 // A "module" is the top-level LFNawa concept requested by the project

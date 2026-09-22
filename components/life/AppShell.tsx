@@ -13,6 +13,7 @@ import {
   FiTrendingUp,
   FiBarChart2,
   FiSettings,
+  FiZap,
   FiMenu,
   FiX,
   FiSearch,
@@ -31,6 +32,7 @@ import Money from "./Money";
 import HealthHabits from "./HealthHabits";
 import Mind from "./Mind";
 import Insights from "./Insights";
+import SystemStatus from "./system/SystemStatus";
 import Settings from "./Settings";
 import QuickAdd from "./QuickAdd";
 import SearchOverlay from "./Search";
@@ -46,6 +48,7 @@ interface NavItem {
 // switched via QuickSwitch below, not one of Days' own tabs.
 const NAV_ITEMS: NavItem[] = [
   { key: "today", label: "Today", icon: FiHome },
+  { key: "system", label: "System", icon: FiZap },
   { key: "myday", label: "My Day", icon: FiBookOpen },
   { key: "calendar", label: "Calendar", icon: FiCalendar },
   { key: "memories", label: "Memories", icon: FiCamera },
@@ -363,6 +366,7 @@ export default function AppShell({ initialTab = "today" }: { initialTab?: TabKey
         <TopBar title={activeItem?.label || ""} onMenu={() => setMobileOpen(true)} onSearch={() => setSearch(true)} />
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 80px" }}>
           {tab === "today" && <Today onNavigate={navigate} onQuickAdd={() => setQuickAdd(true)} />}
+          {tab === "system" && <SystemStatus />}
           {tab === "myday" && <MyDay date={selectedDate} setDate={setSelectedDate} />}
           {tab === "calendar" && <Calendar onOpenDay={openDay} />}
           {tab === "memories" && <Memories />}

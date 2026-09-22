@@ -3,6 +3,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { FiPlus, FiCamera, FiTrendingUp } from "react-icons/fi";
 import { C, Panel, StatTile, fmtDateLong, primaryBtn } from "./ui";
 import { dbGetByDate, dbGet, getTradesForDate, todayStr } from "@/lib/storage";
+import TodaySystemSection from "./system/TodaySystemSection";
 import type { DayRecord, Achievement, TaskEntry, Memory, MoneyEntry, TradeLike, TabKey } from "@/types/life";
 
 export default function Today({ onNavigate, onQuickAdd }: { onNavigate: (tab: TabKey) => void; onQuickAdd: () => void }) {
@@ -95,6 +96,8 @@ export default function Today({ onNavigate, onQuickAdd }: { onNavigate: (tab: Ta
         ))}
         {achievements.length === 0 && tasks.length === 0 && <div style={{ fontSize: 13, color: C.inkFaint }}>Nothing logged yet.</div>}
       </Panel>
+
+      <TodaySystemSection onNavigate={onNavigate} />
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <div style={{ flex: "1 1 140px" }}>
