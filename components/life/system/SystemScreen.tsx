@@ -5,16 +5,17 @@ import { todayStr } from "@/lib/storage";
 import { describeGains, formatXp } from "@/lib/system/engine";
 import HabitLinksPanel from "./HabitLinksPanel";
 import RulesPanel from "./RulesPanel";
+import DailyQuestsPanel from "./DailyQuestsPanel";
 import StatsGrid from "./StatsGrid";
 import SystemStyles from "./SystemStyles";
 import XpProgress from "./XpProgress";
 import { useSystemSnapshot } from "./useSystemSnapshot";
 
 // Presentation-only labels for where a piece of activity came from.
-const SOURCE_LABEL: Record<string, string> = { habits: "Habit", tasks: "Task", trading: "Trading" };
+const SOURCE_LABEL: Record<string, string> = { habits: "Habit", tasks: "Task", trading: "Trading", quests: "Quest" };
 
 export default function SystemScreen() {
-  const { snapshot, error } = useSystemSnapshot();
+  const { snapshot, error, reload } = useSystemSnapshot();
   const date = todayStr();
 
   if (error) {
@@ -68,6 +69,7 @@ export default function SystemScreen() {
         )}
       </Panel>
 
+      <DailyQuestsPanel snapshot={snapshot} reload={reload} />
       <HabitLinksPanel links={snapshot.habitLinks} />
       <RulesPanel />
     </div>

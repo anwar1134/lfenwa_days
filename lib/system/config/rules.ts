@@ -42,4 +42,12 @@ export const REWARD_RULES: readonly RewardRule[] = [
   { id: "trading.prepared", label: "Complete your trading preparation", eventType: "trading.prepared", tier: "mediumTask", stats: { discipline: 1 }, dailyCap: 1 },
   { id: "trading.noTrade", label: "Log a no-trade decision and take no trades", eventType: "trading.noTrade", tier: "mediumTask", stats: { discipline: 2 }, dailyCap: 1 },
   { id: "trading.reviewed", label: "Complete your trading review", eventType: "trading.reviewed", tier: "mediumTask", stats: { intelligence: 1, discipline: 1 }, dailyCap: 1 },
+  {
+    id: "quest.completed",
+    label: "Complete a daily quest",
+    eventType: "quest.completed",
+    tier: "shortQuest",
+    stats: {},
+    dailyCap: 5,
+  },
 ];

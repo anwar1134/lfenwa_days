@@ -136,7 +136,9 @@ export interface SystemSnapshot {
   /** Newest first. */
   recent: XpLedgerEntry[];
   habitLinks: Record<string, HabitCategory>;
+  completedQuestIds: string[];
 }
+
 
 export interface ProcessResult {
   /** Events newly stored as facts. */

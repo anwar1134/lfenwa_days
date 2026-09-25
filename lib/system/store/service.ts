@@ -193,12 +193,22 @@ export async function getSnapshot(today: string): Promise<SystemSnapshot> {
   const rows = await dbTransaction(["xpLedger"], "readonly", (t) => idbReq(t.objectStore("xpLedger").index("by_date").getAll(IDBKeyRange.bound(from, today))) as Promise<XpLedgerEntry[]>);
   const todayXp = rows.filter((r) => r.date === today).reduce((sum, r) => sum + toNonNegativeInt(r.xp), 0);
   const recent = [...rows].sort((a, b) => b.at - a.at).slice(0, 25);
-  return {
-    totalXp: profile.projection.totalXp,
-    stats: profile.projection.stats,
-    progress: getLevelProgress(profile.projection.totalXp),
-    todayXp,
-    recent,
-    habitLinks: profile.settings.habitLinks,
-  };
+
+const completedQuestIds = rows
+  .filter(
+    (row) =>
+      row.ruleId === "quest.completed" &&
+      row.eventId.startsWith("quest:"),
+  )
+  .map((row) => row.eventId.slice("quest:".length));
+
+return {
+  totalXp: profile.projection.totalXp,
+  stats: profile.projection.stats,
+  progress: getLevelProgress(profile.projection.totalXp),
+  todayXp,
+  recent,
+  habitLinks: profile.settings.habitLinks,
+  completedQuestIds,
+};
 }

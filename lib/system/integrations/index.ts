@@ -7,12 +7,13 @@ import { RECONCILE_LOOKBACK_DAYS, RECONCILE_MIN_INTERVAL_MS } from "../config";
 import { recentDates } from "../engine";
 import { processEvents, rebuildProjection, setHabitLink } from "../store";
 import { habitsIntegration } from "./habits";
+import { questsIntegration } from "./quests";
 export { listLinkableHabits } from "./habits";
 import { tasksIntegration } from "./tasks";
 import { tradingIntegration } from "./trading";
 import type { Integration } from "./types";
 
-export const INTEGRATIONS: readonly Integration[] = [habitsIntegration, tasksIntegration, tradingIntegration];
+export const INTEGRATIONS: readonly Integration[] = [habitsIntegration, tasksIntegration, tradingIntegration, questsIntegration];
 
 /* ---------- reconcile (startup / focus / returning from Trades) ---------- */
 

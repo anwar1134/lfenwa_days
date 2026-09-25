@@ -4,6 +4,7 @@ export const XP_TIERS = {
   smallTask: { label: "Small task", xp: 10 },
   simpleHabit: { label: "Simple habit", xp: 15 },
   mediumTask: { label: "Medium task", xp: 25 },
+  shortQuest: { label: "Short daily quest", xp: 20 },
   session30: { label: "Training / study, 30 min", xp: 30 },
   session60: { label: "Training / study, 1 hour", xp: 50 },
   hardTask: { label: "Hard task", xp: 75 },
