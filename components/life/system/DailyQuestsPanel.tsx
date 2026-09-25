@@ -8,9 +8,8 @@ import {
   DAILY_QUEST_DEFINITIONS,
   buildDailyQuests,
   markQuestCompleted,
+  completeDailyQuest,
 } from "@/lib/system/quests";
-import { questCompletedEvent } from "@/lib/system/integrations/quests";
-import { processEvents } from "@/lib/system/store";
 import type { SystemSnapshot } from "@/types/system";
 
 interface DailyQuestsPanelProps {
@@ -46,12 +45,10 @@ export default function DailyQuestsPanel({
     setCompletingId(questId);
 
     try {
-      const completed = markQuestCompleted(quest, Date.now());
-      const event = questCompletedEvent(completed, Date.now());
+      const completed = await completeDailyQuest(quest, Date.now());
 
-      if (!event) return;
+      if (!completed) return;
 
-      await processEvents([event], date);
       await reload();
     } finally {
       setCompletingId(null);

@@ -46,8 +46,8 @@ t("huge finite XP (1e15) returns quickly with an integer level", () => {
 t("fractional XP is floored", () => assert.equal(levelFromXp(99.9), 1));
 t("xpForLevel(0 / -3 / NaN) clamps to level 1 (0 XP)", () => { assert.equal(xpForLevel(0), 0); assert.equal(xpForLevel(-3), 0); assert.equal(xpForLevel(NaN), 0); });
 // --- XP table = the spec
-t("XP tiers equal the spec (10/15/25/30/50/75/150/300)", () => {
-  assert.deepEqual(Object.values(XP_TIERS).map((x) => x.xp), [10, 15, 25, 30, 50, 75, 150, 300]);
+t("XP tiers equal the current spec, including shortQuest", () => {
+  assert.deepEqual(Object.values(XP_TIERS).map((x) => x.xp), [10, 15, 25, 20, 30, 50, 75, 150, 300]);
 });
 t("formatXp is locale-independent: 1240 -> '1,240'", () => { assert.equal(formatXp(1240), "1,240"); assert.equal(formatXp(-4), "0"); });
 t("toNonNegativeInt basics", () => { assert.equal(toNonNegativeInt("12"), 12); assert.equal(toNonNegativeInt(-1), 0); assert.equal(toNonNegativeInt(3.7), 3); });

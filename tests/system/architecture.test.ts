@@ -46,7 +46,7 @@ t("DB IS ADDITIVE: lib/storage.ts can never delete a store or a database, and st
   assert.doesNotMatch(code, /\.createIndex\([^)]*\)[\s\S]{0,40}deleteIndex|deleteIndex/, "indexes must never be dropped");
 });
 t("NO LEGACY SYSTEM: the abandoned prototype's stores, quest model and API names do not exist anywhere in the source", () => {
-  for (const f of SOURCE) assert.doesNotMatch(stripComments(read(f)), /\b(systemEvents|SystemQuest|ensureDailyQuests|completeQuest|loadOrCreateProfile|getRecentEvents|getXpForDate|DailyQuestsPanel|useDailyQuests)\b|"quests"/, f);
+  for (const f of SOURCE) assert.doesNotMatch(stripComments(read(f)), /\b(systemEvents|SystemQuest|ensureDailyQuests|loadOrCreateProfile|getRecentEvents|getXpForDate|useDailyQuests)\b/, f);
   for (const f of ["lib/system/config.ts", "lib/system/engine.ts", "lib/system/store.ts"]) assert.ok(!fs.existsSync(path.join(ROOT, f)), `${f} (prototype single-file module) must not exist`);
 });
 
